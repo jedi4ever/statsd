@@ -18,6 +18,8 @@ Optional Variables:
 */
 {
   graphitePort: 2003
-, graphiteHost: "graphite.host.com"
-, port: 8125
+  , graphiteHost: "graphite.host.com"
+  , port: 8125
+  , zmqPort: 3000
+  , zmqAddress: "127.0.0.1"
 }

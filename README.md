@@ -1,3 +1,26 @@
+_Note:_ 
+
+- this is an experimental version that puts the statsd on a zeromq pub/sub mechanism
+- is patched for version 6. of node
+
+Requires npm module zmq : <https://github.com/JustinTulloss/zeromq.node>
++ zmq bindings for your OS
+
+    $ npm install zmq
+
+Additional settings:
+
+- zmqAddress: publisher bind address
+- zmqPort : publisher port
+
+A sample subscriber is included as subscriber.js
+
+    $ node subscriber.js
+
+    $ echo "somecounter:1|c" | nc -w 1 -u 127.0.0.1 8125
+
+==================================
+
 StatsD
 ======
 

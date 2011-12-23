@@ -1,11 +1,13 @@
 var dgram  = require('dgram')
-  , sys    = require('sys')
-  , net    = require('net')
-  , config = require('./config')
+, sys    = require('sys')
+, net    = require('net')
+, config = require('./config')
+, zmq = require('zmq') ;
 
 var counters = {};
 var timers = {};
 var debugInt, flushInt, server, mgmtServer;
+var zmqPublisher;
 var startup_time = Math.round(new Date().getTime() / 1000);
 
 var stats = {
@@ -32,14 +34,19 @@ config.configFile(process.argv[2], function (config, oldConfig) {
     }, config.debugInterval || 10000);
   }
 
+  if (zmqPublisher === undefined) {
+    zmqPublisher = zmq.socket('pub') ;
+    zmqPublisher.bindSync('tcp://'+config.zmqAddress+':'+config.zmqPort) ;
+  }
+
   if (server === undefined) {
     server = dgram.createSocket('udp4', function (msg, rinfo) {
       if (config.dumpMessages) { sys.log(msg.toString()); }
       var bits = msg.toString().split(':');
       var key = bits.shift()
-                    .replace(/\s+/g, '_')
-                    .replace(/\//g, '-')
-                    .replace(/[^a-zA-Z_\-0-9\.]/g, '');
+      .replace(/\s+/g, '_')
+      .replace(/\//g, '-')
+        .replace(/[^a-zA-Z_\-0-9\.]/g, '');
 
       if (bits.length == 0) {
         bits.push("1");
@@ -49,9 +56,9 @@ config.configFile(process.argv[2], function (config, oldConfig) {
         var sampleRate = 1;
         var fields = bits[i].split("|");
         if (fields[1] === undefined) {
-            sys.log('Bad line: ' + fields);
-            stats['messages']['bad_lines_seen']++;
-            continue;
+          sys.log('Bad line: ' + fields);
+          stats['messages']['bad_lines_seen']++;
+          continue;
         }
         if (fields[1].trim() == "ms") {
           if (! timers[key]) {
@@ -81,48 +88,48 @@ config.configFile(process.argv[2], function (config, oldConfig) {
         switch(cmd) {
           case "help":
             stream.write("Commands: stats, counters, timers, quit\n\n");
-            break;
+          break;
 
           case "stats":
             var now    = Math.round(new Date().getTime() / 1000);
-            var uptime = now - startup_time;
+          var uptime = now - startup_time;
 
-            stream.write("uptime: " + uptime + "\n");
+          stream.write("uptime: " + uptime + "\n");
 
-            for (group in stats) {
-              for (metric in stats[group]) {
-                var val;
+          for (group in stats) {
+            for (metric in stats[group]) {
+              var val;
 
-                if (metric.match("^last_")) {
-                  val = now - stats[group][metric];
-                }
-                else {
-                  val = stats[group][metric];
-                }
-
-                stream.write(group + "." + metric + ": " + val + "\n");
+              if (metric.match("^last_")) {
+                val = now - stats[group][metric];
               }
+              else {
+                val = stats[group][metric];
+              }
+
+              stream.write(group + "." + metric + ": " + val + "\n");
             }
-            stream.write("END\n\n");
-            break;
+          }
+          stream.write("END\n\n");
+          break;
 
           case "counters":
             stream.write(sys.inspect(counters) + "\n");
-            stream.write("END\n\n");
-            break;
+          stream.write("END\n\n");
+          break;
 
           case "timers":
             stream.write(sys.inspect(timers) + "\n");
-            stream.write("END\n\n");
-            break;
+          stream.write("END\n\n");
+          break;
 
           case "quit":
             stream.end();
-            break;
+          break;
 
           default:
             stream.write("ERROR\n");
-            break;
+          break;
         }
 
       });
@@ -190,28 +197,29 @@ config.configFile(process.argv[2], function (config, oldConfig) {
       }
 
       statString += 'statsd.numStats ' + numStats + ' ' + ts + "\n";
-      
+      sys.log(statString);
+      zmqPublisher.send(statString);
       try {
-        var graphite = net.createConnection(config.graphitePort, config.graphiteHost);
-        graphite.addListener('error', function(connectionException){
-          if (config.debug) {
-            sys.log(connectionException);
-          }
-        });
-        graphite.on('connect', function() {
-          this.write(statString);
-          this.end();
-          stats['graphite']['last_flush'] = Math.round(new Date().getTime() / 1000);
-        });
-      } catch(e){
+      var graphite = net.createConnection(config.graphitePort, config.graphiteHost);
+      graphite.addListener('error', function(connectionException){
         if (config.debug) {
-          sys.log(e);
+          sys.log(connectionException);
         }
-        stats['graphite']['last_exception'] = Math.round(new Date().getTime() / 1000);
+      });
+      graphite.on('connect', function() {
+        this.write(statString);
+        this.end();
+        stats['graphite']['last_flush'] = Math.round(new Date().getTime() / 1000);
+      });
+    } catch(e){
+      if (config.debug) {
+        sys.log(e);
       }
+      stats['graphite']['last_exception'] = Math.round(new Date().getTime() / 1000);
+    }
 
-    }, flushInterval);
-  }
+  }, flushInterval);
+}
 
 });
 
